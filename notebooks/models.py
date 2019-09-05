@@ -19,11 +19,27 @@ class BaseModel:
         self.model = Model(inputs=inputs, outputs=outputs)
         self.model.compile(optimizer='adam', loss='binary_crossentropy')
 
+    def fit(self, **args):
+        return self.model.fit(**args)
+
+    def fit_generator(self, **args):
+        return self.model.fit_generator(**args)
+
+    def predict(self, **args):
+        return self.model.predict(**args)
+
+    def predict_generator(self, **args):
+        return self.model.predict_generator(**args)
+
+    def summary(self):
+        return self.model.summary()
+
 class SimpleInception(BaseModel):
-    def __init__(self, num_filters=16):
+    def __init__(self, num_filters=16, input_size=64):
         BaseModel.__init__(self)
 
         self.num_filters = num_filters
+        self.input_size = input_size
 
     def create_inception_pair(self, kernel_size, input_layer):
         l = Conv2D(self.num_filters, (1, 1), padding='same', activation='relu')(input_layer)
@@ -49,7 +65,7 @@ class SimpleInception(BaseModel):
         return l
 
     def get_io_layers(self):
-        input_img = Input((HEIGHT, WIDTH, 1), dtype='float32')
+        input_img = Input((self.input_size, self.input_size, 1), dtype='float32')
 
         x = self.create_inception_layer(input_img)
         x = MaxPool2D((2, 4))(x)
