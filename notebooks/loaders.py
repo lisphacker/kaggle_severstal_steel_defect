@@ -16,8 +16,9 @@ class BaseImageLoader(Sequence):
 
     def get_image(self, imageid):
         if imageid not in self.image_cache:
-            im = plt.imread(pth.join(TRAIN_IMG_DIR, f'{imageid}.jpg')).astype('float32')
+            im = plt.imread(pth.join(TRAIN_IMG_DIR, f'{imageid}.jpg'))[:, :, 0].astype('float32')
             im /= 255
+            return im
             self.image_cache[imageid] = im
             
         return self.image_cache[imageid]
@@ -49,8 +50,7 @@ class ImageLoader(BaseImageLoader):
 
         for i, imageid in enumerate(self.image_names[start:end]):
             im = self.get_image(imageid)
-            im /= 255
-            img[i, :, :, 0] = im[:, :, 0]
+            img[i, :, :, 0] = im
             
             image_group = self.image_groups.get_group(imageid)
             for row in image_group.itertuples():
@@ -96,8 +96,7 @@ class BlockwiseImageLoader(ImageLoader):
 
         for i, imageid in enumerate(self.image_names[start:end]):
             im = self.get_image(imageid)
-            im /= 255
-            self.split_image_to_patches(img[i, :, :, :, :], im[:, :, 0])
+            self.split_image_to_patches(img[i, :, :, :, :], im[:, :])
             
             image_group = self.image_groups.get_group(imageid)
             for row in image_group.itertuples():

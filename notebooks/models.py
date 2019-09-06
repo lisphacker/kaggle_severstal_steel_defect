@@ -34,6 +34,36 @@ class BaseModel:
     def summary(self):
         return self.model.summary()
 
+class SimpleAE(BaseModel):
+    def __init__(self, input_size=64):
+        BaseModel.__init__(self)
+
+        self.input_size = input_size
+
+    def make_conv_layer(self, num_filters, filter_size, l):
+        return Conv2D(num_filters, (filter_size, filter_size), padding='same', activation='relu')(l)
+
+    def get_io_layers(self):
+        input_img = Input((HEIGHT, WIDTH, 1), dtype='float32')
+
+        x = input_img
+
+        num_filters = 16
+        filter_size = 3
+
+        x = self.make_conv_layer(num_filters, filter_size, x)
+        x = self.make_conv_layer(num_filters, filter_size, x)
+
+        o = [x] * 4
+
+        for i in range(4):
+            o[i] = self.make_conv_layer(num_filters, filter_size, o[i])
+            o[i] = self.make_conv_layer(1, filter_size, o[i])
+
+        return input_img, o
+
+
+
 class SimpleInception(BaseModel):
     def __init__(self, num_filters=16, input_size=64):
         BaseModel.__init__(self)
@@ -60,7 +90,7 @@ class SimpleInception(BaseModel):
         #l = Conv2D(num_filters, (3, 3), padding='same', activation='relu')(l)
         
         l = UpSampling2D((2, 4))(l)
-        l = Conv2D(1, (3, 3), padding='same', activation='relu')(l)
+        l = Conv2D(1, (3, 3), padding='same', activation='sigmoid')(l)
         
         return l
 
