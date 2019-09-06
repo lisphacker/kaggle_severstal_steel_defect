@@ -2,6 +2,7 @@ from abc import abstractmethod
 
 from tensorflow.keras import Input, Model
 from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, UpSampling2D, Add, Flatten, Reshape
+from tensorflow.keras.layers import LeakyReLU, Softmax, BatchNormalization
 
 from config import *
 
@@ -40,25 +41,41 @@ class SimpleAE(BaseModel):
 
         self.input_size = input_size
 
-    def make_conv_layer(self, num_filters, filter_size, l):
-        return Conv2D(num_filters, (filter_size, filter_size), padding='same', activation='relu')(l)
+    def make_complex_conv_layer(self, num_filters, filter_size, l,  activation='relu'):
+        l = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(l)
+        
+        return l
 
     def get_io_layers(self):
         input_img = Input((HEIGHT, WIDTH, 1), dtype='float32')
 
         x = input_img
 
-        num_filters = 16
+        num_filters = 8
         filter_size = 3
 
-        x = self.make_conv_layer(num_filters, filter_size, x)
-        x = self.make_conv_layer(num_filters, filter_size, x)
+        x = self.make_complex_conv_layer(16, filter_size, x)
+        x = MaxPool2D((4, 2))(x)
+
+        x = self.make_complex_conv_layer(32, filter_size, x)
+        x = MaxPool2D((4, 2))(x)
+
+        x = self.make_complex_conv_layer(64, filter_size, x)
+        x = MaxPool2D((4, 2))(x)
 
         o = [x] * 4
 
-        for i in range(4):
-            o[i] = self.make_conv_layer(num_filters, filter_size, o[i])
-            o[i] = self.make_conv_layer(1, filter_size, o[i])
+        for i in range(len(o)):
+            o[i] = self.make_complex_conv_layer(64, filter_size, o[i])
+            o[i] = UpSampling2D((4, 2))(o[i])
+
+            o[i] = self.make_complex_conv_layer(32, filter_size, o[i])
+            o[i] = UpSampling2D((4, 2))(o[i])
+
+            o[i] = self.make_complex_conv_layer(16, filter_size, o[i])
+            o[i] = UpSampling2D((4, 2))(o[i])
+
+            o[i] = self.make_complex_conv_layer(1, filter_size, o[i]), activation='sigmoid')
 
         return input_img, o
 
