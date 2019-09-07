@@ -43,6 +43,9 @@ class SimpleAE(BaseModel):
 
     def make_complex_conv_layer(self, num_filters, filter_size, l,  activation='relu'):
         l = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(l)
+        if activation == 'relu':
+            l = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(l)
+        #l = BatchNormalization(axis=3)(l)
         
         return l
 
@@ -54,28 +57,28 @@ class SimpleAE(BaseModel):
         num_filters = 8
         filter_size = 3
 
-        x = self.make_complex_conv_layer(16, filter_size, x)
+        x = self.make_complex_conv_layer(16, 7, x)
         x = MaxPool2D((4, 2))(x)
 
-        x = self.make_complex_conv_layer(32, filter_size, x)
+        x = self.make_complex_conv_layer(64, 5, x)
         x = MaxPool2D((4, 2))(x)
 
-        x = self.make_complex_conv_layer(64, filter_size, x)
+        x = self.make_complex_conv_layer(256, 3, x)
         x = MaxPool2D((4, 2))(x)
 
         o = [x] * 4
 
         for i in range(len(o)):
-            o[i] = self.make_complex_conv_layer(64, filter_size, o[i])
+            o[i] = self.make_complex_conv_layer(64, 3, o[i])
             o[i] = UpSampling2D((4, 2))(o[i])
 
-            o[i] = self.make_complex_conv_layer(32, filter_size, o[i])
+            o[i] = self.make_complex_conv_layer(32, 5, o[i])
             o[i] = UpSampling2D((4, 2))(o[i])
 
-            o[i] = self.make_complex_conv_layer(16, filter_size, o[i])
+            o[i] = self.make_complex_conv_layer(16, 7, o[i])
             o[i] = UpSampling2D((4, 2))(o[i])
 
-            o[i] = self.make_complex_conv_layer(1, filter_size, o[i]), activation='sigmoid')
+            o[i] = self.make_complex_conv_layer(1, 1, o[i], activation='sigmoid')
 
         return input_img, o
 
