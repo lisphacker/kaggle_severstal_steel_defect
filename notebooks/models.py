@@ -43,9 +43,6 @@ class SimpleAE(BaseModel):
 
     def make_complex_conv_layer(self, num_filters, filter_size, l,  activation='relu'):
         l = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(l)
-        if activation == 'relu':
-            l = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(l)
-        #l = BatchNormalization(axis=3)(l)
         
         return l
 
@@ -78,7 +75,51 @@ class SimpleAE(BaseModel):
             o[i] = self.make_complex_conv_layer(16, 7, o[i])
             o[i] = UpSampling2D((4, 2))(o[i])
 
-            o[i] = self.make_complex_conv_layer(1, 1, o[i], activation='sigmoid')
+            o[i] = self.make_complex_conv_layer(1, 7, o[i], activation='sigmoid')
+
+        return input_img, o
+
+class UNet(BaseModel):
+    def __init__(self):
+        BaseModel.__init__(self)
+
+    def conv_down(self, num_filters, conv_filter_size=3, pool_filter_size=(2, 2), input_layer,  activation='relu'):
+        conv = input_layer
+        conv = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(conv)
+        conv = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(conv)
+        pool = MaxPool2D(pool_filter_size)(conv)
+        return pool, conv
+
+    def get_io_layers(self):
+        input_img = Input((HEIGHT, WIDTH, 1), dtype='float32')
+
+        x = input_img
+
+        num_filters = 8
+        filter_size = 3
+
+        x = self.make_complex_conv_layer(16, 7, x)
+        x = MaxPool2D((4, 2))(x)
+
+        x = self.make_complex_conv_layer(64, 5, x)
+        x = MaxPool2D((4, 2))(x)
+
+        x = self.make_complex_conv_layer(256, 3, x)
+        x = MaxPool2D((4, 2))(x)
+
+        o = [x] * 4
+
+        for i in range(len(o)):
+            o[i] = self.make_complex_conv_layer(64, 3, o[i])
+            o[i] = UpSampling2D((4, 2))(o[i])
+
+            o[i] = self.make_complex_conv_layer(32, 5, o[i])
+            o[i] = UpSampling2D((4, 2))(o[i])
+
+            o[i] = self.make_complex_conv_layer(16, 7, o[i])
+            o[i] = UpSampling2D((4, 2))(o[i])
+
+            o[i] = self.make_complex_conv_layer(1, 7, o[i], activation='sigmoid')
 
         return input_img, o
 
