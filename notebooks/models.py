@@ -81,8 +81,10 @@ class SimpleAE(BaseModel):
         return input_img, o
 
 class UNet(BaseModel):
-    def __init__(self):
+    def __init__(self, n_layers=4):
         BaseModel.__init__(self)
+
+        self.n_layers = n_layers
 
     def conv_down(self, input_layer, num_filters, 
                   conv_filter_shape=(3, 3), pool_filter_shape=(2, 2), 
@@ -91,11 +93,9 @@ class UNet(BaseModel):
         conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(conv)
 
         if skip_pool:
-            print(1, conv)
             return conv
         else:
             pool = MaxPool2D(pool_filter_shape)(conv)
-            print(2, pool, conv)
             return pool, conv
 
     def conv_up(self, input_layer, encoder_input_layer, num_filters, conv_filter_shape=3, pool_filter_shaoe=(2, 2), activation='relu'):
@@ -113,37 +113,23 @@ class UNet(BaseModel):
         filter_multiplier = 2
         num_filters = 64
 
-        n_layers = 4
+        out = input_img
 
-        pool1, conv1 = self.conv_down(input_img, num_filters)
-        num_filters *= filter_multiplier
+        saved = []
 
-        pool2, conv2 = self.conv_down(pool1, num_filters)
-        num_filters *= filter_multiplier
+        for i in range(self.n_layers):
+            out, save = self.conv_down(out, num_filters)
+            saved.append(save)
+            num_filters *= filter_multiplier
 
-        pool3, conv3 = self.conv_down(pool2, num_filters)
-        num_filters *= filter_multiplier
-
-        pool4, conv4 = self.conv_down(pool3, num_filters)
-        num_filters *= filter_multiplier
-
-        mid = self.conv_down(pool4, num_filters, skip_pool=True)
-        print(mid)
+        mid = self.conv_down(out, num_filters, skip_pool=True)
 
         o = [mid] * 1
 
         for i in range(len(o)):
-            num_filters /= filter_multiplier
-            o[i] = self.conv_up(o[i], conv4, num_filters)
-
-            num_filters /= filter_multiplier
-            o[i] = self.conv_up(o[i], conv3, num_filters)
-
-            num_filters /= filter_multiplier
-            o[i] = self.conv_up(o[i], conv2, num_filters)
-
-            num_filters /= filter_multiplier
-            o[i] = self.conv_up(o[i], conv1, num_filters)
+            for j in range(self.n_layers):
+                num_filters /= filter_multiplier
+                o[i] = self.conv_up(o[i], saved[-(j + 1)], num_filters)
 
             o[i] = Conv2D(filters=1, kernel_size=(1, 1), activation="sigmoid")(o[i])
 
