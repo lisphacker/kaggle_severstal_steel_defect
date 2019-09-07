@@ -1,7 +1,8 @@
 from abc import abstractmethod
 
 from tensorflow.keras import Input, Model
-from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, UpSampling2D, Add, Flatten, Reshape
+from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, UpSampling2D
+from tensorflow.keras.layers import Add, Flatten, Reshape, Concatenate
 from tensorflow.keras.layers import LeakyReLU, Softmax, BatchNormalization
 
 from config import *
@@ -83,43 +84,68 @@ class UNet(BaseModel):
     def __init__(self):
         BaseModel.__init__(self)
 
-    def conv_down(self, num_filters, conv_filter_size=3, pool_filter_size=(2, 2), input_layer,  activation='relu'):
-        conv = input_layer
-        conv = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(conv)
-        conv = Conv2D(num_filters, (filter_size, filter_size), padding='same', activation=activation)(conv)
-        pool = MaxPool2D(pool_filter_size)(conv)
-        return pool, conv
+    def conv_down(self, input_layer, num_filters, 
+                  conv_filter_shape=(3, 3), pool_filter_shape=(2, 2), 
+                  activation='relu', skip_pool=False):
+        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(input_layer)
+        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(conv)
+
+        if skip_pool:
+            print(1, conv)
+            return conv
+        else:
+            pool = MaxPool2D(pool_filter_shape)(conv)
+            print(2, pool, conv)
+            return pool, conv
+
+    def conv_up(self, input_layer, encoder_input_layer, num_filters, conv_filter_shape=3, pool_filter_shaoe=(2, 2), activation='relu'):
+        num_filters = int(num_filters)
+
+        up = UpSampling2D()(input_layer)
+        concat = Concatenate(axis=3)([up, encoder_input_layer])
+        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(concat)
+        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(conv)
+        return conv
 
     def get_io_layers(self):
         input_img = Input((HEIGHT, WIDTH, 1), dtype='float32')
 
-        x = input_img
+        filter_multiplier = 2
+        num_filters = 64
 
-        num_filters = 8
-        filter_size = 3
+        n_layers = 4
 
-        x = self.make_complex_conv_layer(16, 7, x)
-        x = MaxPool2D((4, 2))(x)
+        pool1, conv1 = self.conv_down(input_img, num_filters)
+        num_filters *= filter_multiplier
 
-        x = self.make_complex_conv_layer(64, 5, x)
-        x = MaxPool2D((4, 2))(x)
+        pool2, conv2 = self.conv_down(pool1, num_filters)
+        num_filters *= filter_multiplier
 
-        x = self.make_complex_conv_layer(256, 3, x)
-        x = MaxPool2D((4, 2))(x)
+        pool3, conv3 = self.conv_down(pool2, num_filters)
+        num_filters *= filter_multiplier
 
-        o = [x] * 4
+        pool4, conv4 = self.conv_down(pool3, num_filters)
+        num_filters *= filter_multiplier
+
+        mid = self.conv_down(pool4, num_filters, skip_pool=True)
+        print(mid)
+
+        o = [mid] * 1
 
         for i in range(len(o)):
-            o[i] = self.make_complex_conv_layer(64, 3, o[i])
-            o[i] = UpSampling2D((4, 2))(o[i])
+            num_filters /= filter_multiplier
+            o[i] = self.conv_up(o[i], conv4, num_filters)
 
-            o[i] = self.make_complex_conv_layer(32, 5, o[i])
-            o[i] = UpSampling2D((4, 2))(o[i])
+            num_filters /= filter_multiplier
+            o[i] = self.conv_up(o[i], conv3, num_filters)
 
-            o[i] = self.make_complex_conv_layer(16, 7, o[i])
-            o[i] = UpSampling2D((4, 2))(o[i])
+            num_filters /= filter_multiplier
+            o[i] = self.conv_up(o[i], conv2, num_filters)
 
-            o[i] = self.make_complex_conv_layer(1, 7, o[i], activation='sigmoid')
+            num_filters /= filter_multiplier
+            o[i] = self.conv_up(o[i], conv1, num_filters)
+
+            o[i] = Conv2D(filters=1, kernel_size=(1, 1), activation="sigmoid")(o[i])
 
         return input_img, o
 
