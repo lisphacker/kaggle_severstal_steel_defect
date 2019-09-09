@@ -4,12 +4,18 @@ from tensorflow.keras import Input, Model
 from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, UpSampling2D
 from tensorflow.keras.layers import Add, Flatten, Reshape, Concatenate
 from tensorflow.keras.layers import LeakyReLU, Softmax, BatchNormalization
+from tensorflow.keras.optimizers import Adam
+
+import numpy as np
+import matplotlib.pyplot as plt
 
 from config import *
+from util import *
 
 class BaseModel:
-    def __init__(self):
+    def __init__(self, num_outputs=4):
         self.model = None
+        self.num_outputs = num_outputs
 
     @abstractmethod
     def get_io_layers(self):
@@ -19,7 +25,8 @@ class BaseModel:
         inputs, outputs = self.get_io_layers()
 
         self.model = Model(inputs=inputs, outputs=outputs)
-        self.model.compile(optimizer='adam', loss='binary_crossentropy')
+        self.model.compile(optimizer=Adam(1e-4), loss='binary_crossentropy', metrics=['acc'])
+        #self.model.compile(optimizer=Adam(1e-4), loss=dice_loss, metrics=[dice_coef])
 
     def fit(self, **args):
         return self.model.fit(**args)
@@ -36,6 +43,28 @@ class BaseModel:
     def summary(self):
         return self.model.summary()
 
+    def plot_history(self, keys=['loss', 'val_loss']):
+        if len(keys) == 0:
+            return
+
+        history = self.model.history.history
+    
+        n = 3
+        primary = np.array(history[keys[0]])
+        ymin = primary.mean() - primary.std() * n
+        ymax = primary.mean() + primary.std() * n
+        
+        plt.figure()
+        plt.ylim(ymin, ymax)
+        for key in keys:
+            if key in history.keys():
+                #plt.plot(np.arange(len(history[key])), history[key], label=key)
+                plt.plot(history[key], label=key)
+            else:
+                print(f'Unable to plot {key}')
+        plt.legend()
+        plt.show()
+
 class SimpleAE(BaseModel):
     def __init__(self, input_size=64):
         BaseModel.__init__(self)
@@ -48,7 +77,7 @@ class SimpleAE(BaseModel):
         return l
 
     def get_io_layers(self):
-        input_img = Input((HEIGHT, WIDTH, 1), dtype='float32')
+        input_img = Input((SCALED_HEIGHT, SCALED_WIDTH, 1), dtype='float32')
 
         x = input_img
 
@@ -81,57 +110,71 @@ class SimpleAE(BaseModel):
         return input_img, o
 
 class UNet(BaseModel):
-    def __init__(self, n_layers=4):
-        BaseModel.__init__(self)
+    def __init__(self, n_layers=4, num_start_filters=64, **args):
+        BaseModel.__init__(self, **args)
 
         self.n_layers = n_layers
+        self.num_start_filters = num_start_filters
 
     def conv_down(self, input_layer, num_filters, 
                   conv_filter_shape=(3, 3), pool_filter_shape=(2, 2), 
-                  activation='relu', skip_pool=False):
-        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(input_layer)
-        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(conv)
+                  activation='relu', skip_pool=False, level_name=''):
+        conv = Conv2D(num_filters, conv_filter_shape,         
+                      padding='same', activation=activation,
+                      name=f'{level_name}_conv1')(input_layer)
+        conv = Conv2D(num_filters, conv_filter_shape,
+                      padding='same', activation=activation,
+                      name=f'{level_name}_conv2')(conv)
 
         if skip_pool:
             return conv
         else:
-            pool = MaxPool2D(pool_filter_shape)(conv)
+            pool = MaxPool2D(pool_filter_shape, name=f'{level_name}_maxpool')(conv)
             return pool, conv
 
-    def conv_up(self, input_layer, encoder_input_layer, num_filters, conv_filter_shape=3, pool_filter_shaoe=(2, 2), activation='relu'):
+    def conv_up(self, input_layer, encoder_input_layer, num_filters, 
+                conv_filter_shape=3, pool_filter_shaoe=(2, 2), 
+                activation='relu', level_name=''):
         num_filters = int(num_filters)
 
-        up = UpSampling2D()(input_layer)
-        concat = Concatenate(axis=3)([up, encoder_input_layer])
-        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(concat)
-        conv = Conv2D(num_filters, conv_filter_shape, padding='same', activation=activation)(conv)
+        up = UpSampling2D(name=f'{level_name}_upsample')(input_layer)
+        up = Conv2D(num_filters, (2, 2), padding='same', name=f'{level_name}_conv1')(up)
+
+        concat = Concatenate(axis=3, name=f'{level_name}_concat')([up, encoder_input_layer])
+        conv = Conv2D(num_filters, conv_filter_shape,
+                      padding='same', activation=activation,
+                      name=f'{level_name}_conv2')(concat)
+        conv = Conv2D(num_filters, conv_filter_shape, 
+                      padding='same', activation=activation,
+                      name=f'{level_name}_conv3')(conv)
         return conv
 
     def get_io_layers(self):
-        input_img = Input((HEIGHT, WIDTH, 1), dtype='float32')
+        input_img = Input((SCALED_HEIGHT, SCALED_WIDTH, 1), dtype='float32')
 
         filter_multiplier = 2
-        num_filters = 64
+        num_filters = self.num_start_filters
 
         out = input_img
 
         saved = []
 
         for i in range(self.n_layers):
-            out, save = self.conv_down(out, num_filters)
+            out, save = self.conv_down(out, num_filters, level_name=f'down_{i}')
             saved.append(save)
             num_filters *= filter_multiplier
 
-        mid = self.conv_down(out, num_filters, skip_pool=True)
+        mid = self.conv_down(out, num_filters, skip_pool=True, level_name='mid')
 
-        o = [mid] * 1
+        o = [mid] * self.num_outputs
+
+        for j in range(self.n_layers):
+            num_filters /= filter_multiplier
+            for i in range(len(o)):
+                o[i] = self.conv_up(o[i], saved[-(j + 1)], num_filters, level_name=f'up{i}_{j}')
 
         for i in range(len(o)):
-            for j in range(self.n_layers):
-                num_filters /= filter_multiplier
-                o[i] = self.conv_up(o[i], saved[-(j + 1)], num_filters)
-
-            o[i] = Conv2D(filters=1, kernel_size=(1, 1), activation="sigmoid")(o[i])
+            o[i] = Conv2D(filters=1, kernel_size=(1, 1), activation="sigmoid", name=f'out{i}')(o[i])
 
         return input_img, o
 
